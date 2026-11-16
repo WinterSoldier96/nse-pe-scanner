@@ -6,7 +6,11 @@ Mark Minervini says that in the biggest winners the P/E typically rose two to th
 big move, and that a P/E that has doubled or tripled is a warning that the move may be late. This tool
 tests that idea on NSE stocks using the exchange's own daily files, and it was built with Claude Code.
 
-> **Education using past data, not a recommendation.** Nothing here is investment advice.
+> **Education using past data, not a recommendation.** Nothing here is investment advice, and you use the
+> tool at your own risk. Please read the [Disclaimer](DISCLAIMER.md) before using it.
+
+The prompts used in the video are in [`prompts/PROMPTS.md`](prompts/PROMPTS.md) (Word copy:
+[`prompts/Claude_Code_prompts.docx`](prompts/Claude_Code_prompts.docx)).
 
 ## What it does
 
