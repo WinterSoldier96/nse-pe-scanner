@@ -80,3 +80,9 @@ The NSE data files themselves are not included. The app downloads them from NSE.
 - Loss-making stocks, stocks trading under ₹1 crore a day and stocks with fewer than 200 trading days of data are left out.
 - "P/E" is NSE's daily Symbol P/E (price ÷ trailing EPS), which may differ from the earnings basis in Minervini's study.
 - NSE can change or throttle its website at any time. If downloads fail, wait a while and run again.
+
+## License
+
+The code is released under the [MIT License](LICENSE): you can use, change and share it freely, with no
+warranty. It covers this code only, not NSE's data, which you download from NSE yourself and which
+stays subject to NSE's terms.
