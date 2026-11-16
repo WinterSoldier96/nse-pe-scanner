@@ -1,0 +1,524 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="token" content="__TOKEN__">
+<title>NSE P/E Scanner</title>
+<style>
+/* Layout: masthead with data readout · run sheet (left) beside the session log (right) · scan bulletin below. */
+:root {
+  color-scheme: light;
+  --paper: #f3f5f8;      /* page: cool, slightly blue-biased */
+  --sheet: #fbfcfd;      /* raised surfaces */
+  --ink: #10151c;
+  --ink-2: #485361;
+  --ink-3: #738090;
+  --rule: #dde2e8;
+  --rule-2: #c4cbd4;
+  --accent: #2337a8;     /* exchange-ink indigo: actions and focus only */
+  --on-accent: #ffffff;
+  --console: #0f141b;    /* the log is a terminal in both themes */
+  --console-ink: #cfd7e1;
+  --console-dim: #6b7685;
+  --good: #0b6b2f; --bad: #b3261e; --warn: #8a5a00;
+  --c-earn: #1baf7a; --c-late: #eda100; --c-extreme: #e34948; --c-collapse: #6250d6; --c-rest: #b9c1cb;
+
+  --f-display: "Bahnschrift", "DIN Alternate", "Barlow Semi Condensed", "Arial Narrow", sans-serif;
+  --f-body: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+  --f-mono: "Cascadia Mono", "Cascadia Code", Consolas, ui-monospace, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    color-scheme: dark;
+    --paper: #0e1218; --sheet: #151a22; --ink: #e8ecf1; --ink-2: #a9b3c0; --ink-3: #7d8796;
+    --rule: #242b35; --rule-2: #353e4a; --accent: #8496f2; --on-accent: #0e1218;
+    --console: #090c11; --console-ink: #cfd7e1; --console-dim: #5f6a79;
+    --good: #2fb35f; --bad: #ef7470; --warn: #e0a53a;
+    --c-earn: #199e70; --c-late: #c98500; --c-extreme: #d03b3b; --c-collapse: #9085e9; --c-rest: #3a4350;
+  }
+}
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --paper: #0e1218; --sheet: #151a22; --ink: #e8ecf1; --ink-2: #a9b3c0; --ink-3: #7d8796;
+  --rule: #242b35; --rule-2: #353e4a; --accent: #8496f2; --on-accent: #0e1218;
+  --console: #090c11; --console-ink: #cfd7e1; --console-dim: #5f6a79;
+  --good: #2fb35f; --bad: #ef7470; --warn: #e0a53a;
+  --c-earn: #199e70; --c-late: #c98500; --c-extreme: #d03b3b; --c-collapse: #9085e9; --c-rest: #3a4350;
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.55 var(--f-body); }
+.wrap { max-width: 1240px; margin: 0 auto; padding-block: 0 72px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+h1, h2, h3 { font-family: var(--f-display); font-weight: 600; letter-spacing: .005em; text-wrap: balance; margin: 0; }
+.num, .fig { font-family: var(--f-display); font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--f-mono); font-size: .86em; }
+.eyebrow { font: 600 .72rem/1 var(--f-body); letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); }
+button { font: inherit; color: inherit; cursor: pointer; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+[hidden] { display: none !important; }
+
+/* ---------- masthead ---------- */
+.mast { display: flex; flex-wrap: wrap; align-items: flex-end; justify-content: space-between; gap: 18px 40px;
+  padding: 28px 0 18px; border-bottom: 2px solid var(--ink); }
+.brand h1 { font-size: clamp(1.9rem, 4vw, 2.6rem); line-height: 1; font-weight: 700; letter-spacing: -.005em; }
+.brand h1 b { color: var(--accent); font-weight: 700; }
+.brand .eyebrow { display: block; margin-bottom: 8px; }
+.readout { display: flex; flex-wrap: wrap; gap: 0; }
+.readout > div { padding: 2px 22px; border-left: 1px solid var(--rule-2); min-width: 0; }
+.readout > div:first-child { border-left: 0; padding-left: 0; }
+.readout .fig { font-size: 1.65rem; line-height: 1.1; font-weight: 600; }
+.readout .d { color: var(--ink-2); font: .8rem/1.3 var(--f-mono); }
+.intro { color: var(--ink-2); max-width: 68ch; margin: 14px 0 26px; }
+
+/* ---------- desk: run sheet + log ---------- */
+.desk { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 6fr); gap: 28px; align-items: start; }
+@media (max-width: 960px) { .desk { grid-template-columns: minmax(0, 1fr); } }
+.sec-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--rule-2); }
+.sec-head h2 { font-size: 1.05rem; text-transform: uppercase; letter-spacing: .08em; }
+
+.runsheet { list-style: none; margin: 0; padding: 0; }
+.run { display: grid; grid-template-columns: 2.2rem minmax(0, 1fr) auto; gap: 4px 14px; align-items: center;
+  padding: 16px 0; border-bottom: 1px solid var(--rule); }
+.run .no { font: 600 1.5rem/1 var(--f-display); color: var(--ink-3); align-self: start; padding-top: 2px; }
+.run h3 { font-size: 1.12rem; }
+.run p { margin: 2px 0 0; color: var(--ink-2); font-size: .9rem; }
+.run .state { grid-column: 2 / 4; display: flex; align-items: center; gap: 10px; font: .78rem/1.3 var(--f-mono); color: var(--ink-3); min-height: 0; }
+.run .state:empty { display: none; }
+.run.is-running .no { color: var(--accent); }
+.pill { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 2px; font: 600 .7rem/1.4 var(--f-body);
+  letter-spacing: .08em; text-transform: uppercase; border: 1px solid currentColor; }
+.pill.ok { color: var(--good); } .pill.bad { color: var(--bad); } .pill.live { color: var(--accent); }
+.btn { border: 1px solid var(--rule-2); background: var(--sheet); border-radius: 3px; padding: 8px 16px; font-weight: 600; font-size: .9rem; white-space: nowrap; }
+.btn:hover:not(:disabled) { border-color: var(--ink); }
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn.primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn.primary:hover:not(:disabled) { filter: brightness(1.08); border-color: var(--accent); }
+.btn.stop { background: transparent; border-color: var(--bad); color: var(--bad); }
+.meter { height: 4px; background: var(--rule); position: relative; flex: 1 1 auto; min-width: 80px; overflow: hidden; }
+.meter i { position: absolute; top: 0; bottom: 0; left: 0; width: 0; background: var(--accent); transition: width .3s; }
+.meter.indet i { width: 28%; animation: sweep 1.3s ease-in-out infinite; }
+@keyframes sweep { from { left: -28%; } to { left: 100%; } }
+.lastscan { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; padding: 16px 0 0; color: var(--ink-2); font-size: .9rem; }
+.lastscan .mono { color: var(--ink); }
+
+.console { background: var(--console); color: var(--console-ink); border-radius: 4px; display: flex; flex-direction: column; min-width: 0; height: 468px; }
+.console header { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #ffffff14;
+  font: 600 .72rem/1 var(--f-body); letter-spacing: .12em; text-transform: uppercase; color: var(--console-dim); }
+.console header .job { margin-left: auto; color: var(--console-ink); text-transform: none; letter-spacing: 0; font: .8rem var(--f-mono); }
+.dot { width: 7px; height: 7px; border-radius: 50%; background: var(--console-dim); }
+.dot.on { background: #4ade80; animation: blink 1.4s ease-in-out infinite; }
+@keyframes blink { 50% { opacity: .35; } }
+.log { flex: 1 1 auto; overflow: auto; margin: 0; padding: 10px 14px; font: 12.5px/1.6 var(--f-mono); white-space: pre-wrap; word-break: break-word; }
+.log .ln { display: grid; grid-template-columns: 5.2em minmax(0, 1fr); gap: 10px; }
+.log .t { color: var(--console-dim); }
+.log .e { color: #ff8a84; } .log .w { color: #f2c35b; } .log .g { color: #6fdc9a; } .log .c { color: var(--console-dim); } .log .cmd { color: #9fb0ff; }
+.console footer { padding: 9px 14px; border-top: 1px solid #ffffff14; font: .8rem/1.4 var(--f-mono); color: var(--console-dim); min-height: 2.3em; }
+.console footer.ok { color: #6fdc9a; } .console footer.bad { color: #ff8a84; }
+@media (prefers-reduced-motion: reduce) { .meter.indet i, .dot.on { animation: none; } .meter.indet i { width: 100%; opacity: .5; } }
+
+/* ---------- bulletin ---------- */
+.bulletin { margin-top: 56px; }
+.bull-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 8px 20px;
+  border-bottom: 2px solid var(--ink); padding-bottom: 10px; }
+.bull-head h2 { font-size: clamp(1.5rem, 3vw, 2rem); }
+.bull-head .meta { color: var(--ink-2); font: .82rem var(--f-mono); }
+.block { padding: 28px 0; border-bottom: 1px solid var(--rule-2); }
+.block > .sec-head { margin-bottom: 16px; }
+.note { color: var(--ink-2); font-size: .9rem; max-width: 74ch; margin: 0 0 14px; }
+
+.figs { display: grid; grid-template-columns: 1.3fr repeat(4, minmax(0, 1fr)); gap: 0; }
+@media (max-width: 860px) { .figs { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 14px; } .figs .fg:first-child { grid-column: 1 / -1; } }
+.fg { text-align: left; background: none; border: 0; border-left: 1px solid var(--rule); padding: 6px 18px 10px; border-radius: 0; }
+.fg:first-child { border-left: 0; padding-left: 0; }
+.fg:hover .lab, .fg[aria-pressed="true"] .lab { color: var(--ink); text-decoration: underline; text-underline-offset: 3px; }
+.fg .lab { display: flex; align-items: center; gap: 7px; color: var(--ink-2); font-weight: 600; font-size: .88rem; }
+.fg .v { font: 600 2.6rem/1.05 var(--f-display); font-variant-numeric: tabular-nums; margin: 4px 0 2px; }
+.fg:first-child .v { font-size: 3.4rem; }
+.fg .sh { color: var(--ink-3); font: .78rem var(--f-mono); }
+.fg svg { flex: none; }
+
+.compo { display: flex; gap: 2px; height: 26px; margin: 22px 0 6px; }
+.compo button { border: 0; padding: 0; min-width: 4px; border-radius: 1px; background: var(--c); }
+.compo button:hover, .compo button[aria-pressed="true"] { outline: 2px solid var(--ink); outline-offset: 1px; }
+.compo button.rest { background: repeating-linear-gradient(135deg, var(--c-rest) 0 3px, transparent 3px 6px); }
+.compo-scale { display: flex; justify-content: space-between; color: var(--ink-3); font: .74rem var(--f-mono); }
+
+.listbox { margin-top: 22px; }
+.listbox .sec-head input { font: inherit; font-size: .88rem; padding: 6px 10px; border: 1px solid var(--rule-2); border-radius: 3px; background: var(--sheet); color: var(--ink); width: 200px; max-width: 100%; }
+.tablewrap { overflow-x: auto; }
+.scroll { max-height: 440px; overflow: auto; }
+table { border-collapse: collapse; width: 100%; font-size: .88rem; font-variant-numeric: tabular-nums; }
+th, td { text-align: right; padding: 7px 12px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+th:first-child, td:first-child { text-align: left; padding-left: 0; }
+thead th { font: 600 .7rem/1.3 var(--f-body); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3);
+  vertical-align: bottom; white-space: normal; border-bottom: 1px solid var(--rule-2); position: sticky; top: 0; background: var(--paper); }
+td.sym { font-family: var(--f-mono); font-weight: 600; font-size: .84rem; }
+tr.sub th { text-align: left; font: 600 .95rem var(--f-display); text-transform: none; letter-spacing: 0; color: var(--ink); padding-top: 16px; position: static; }
+.pos { color: var(--good); } .neg { color: var(--bad); }
+.beat { display: inline-grid; grid-template-columns: 90px 3.2em; align-items: center; gap: 8px; }
+.beat .bar { position: relative; height: 8px; background: var(--rule); }
+.beat .bar i { position: absolute; top: 0; bottom: 0; left: 0; background: var(--ink-2); }
+.beat .bar b { position: absolute; top: -3px; bottom: -3px; left: 50%; width: 1px; background: var(--ink); }
+
+.chartframe { width: 100%; border: 0; display: block; min-height: 400px; background: transparent; }
+.leaders { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 440px), 1fr)); gap: 30px 40px; }
+.leaders h3 { display: flex; align-items: center; gap: 8px; font-size: 1.05rem; padding-bottom: 6px; border-bottom: 1px solid var(--rule-2); }
+.leaders h3 span { color: var(--ink-3); font: .78rem var(--f-mono); margin-left: auto; }
+.leaders table { font-size: .85rem; }
+
+.files { list-style: none; margin: 0 0 18px; padding: 0; }
+.files li { display: grid; grid-template-columns: minmax(0, 15em) minmax(0, 1fr) auto; gap: 6px 18px; align-items: baseline; padding: 10px 0; border-bottom: 1px solid var(--rule); }
+.files a { color: var(--accent); font: 600 .9rem var(--f-mono); text-decoration: none; }
+.files a:hover { text-decoration: underline; }
+.files .what { color: var(--ink-2); font-size: .9rem; }
+.files .size { color: var(--ink-3); font: .8rem var(--f-mono); }
+@media (max-width: 640px) { .files li { grid-template-columns: minmax(0, 1fr) auto; } .files .what { grid-column: 1 / -1; grid-row: 2; } }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="mast">
+    <div class="brand">
+      <span class="eyebrow">NSE · Capital Market segment</span>
+      <h1>P/E <b>Scanner</b></h1>
+    </div>
+    <div class="readout" aria-label="NSE data on this computer">
+      <div><span class="eyebrow">PE ratio files</span><div class="fig" id="peN">–</div><div class="d" id="peD">&nbsp;</div></div>
+      <div><span class="eyebrow">Bhavcopies</span><div class="fig" id="bhN">–</div><div class="d" id="bhD">&nbsp;</div></div>
+      <div><span class="eyebrow">Sessions to cover</span><div class="fig" id="tdN">–</div><div class="d" id="tdD">&nbsp;</div></div>
+    </div>
+  </header>
+  <p class="intro">Finds NSE stocks whose share price has run ahead of their profits, from the exchange's own daily PE ratio
+  files and bhavcopies. Run the steps in order; the first time, start with the quick test.</p>
+
+  <section class="desk" aria-label="Run the scanner">
+    <div>
+      <div class="sec-head"><h2>Run sheet</h2><span class="eyebrow">4 steps</span></div>
+      <ol class="runsheet">
+        <li class="run" data-job="quick"><span class="no">1</span>
+          <div><h3>Quick test</h3><p>Downloads the last 7 trading sessions. Takes about a minute and confirms NSE is answering.</p></div>
+          <button class="btn primary go">Run</button><div class="state"></div></li>
+        <li class="run" data-job="all"><span class="no">2</span>
+          <div><h3>Download everything</h3><p>Every session since 30-Apr-2024. Files already on this computer are skipped.</p></div>
+          <button class="btn primary go">Run</button><div class="state"></div></li>
+        <li class="run" data-job="check"><span class="no">3</span>
+          <div><h3>Check the data</h3><p>Each session should have both files, open cleanly and carry a normal number of stocks.</p></div>
+          <button class="btn primary go">Run</button><div class="state"></div></li>
+        <li class="run" data-job="scan"><span class="no">4</span>
+          <div><h3>Run the scanner</h3><p>Measures every stock's P/E change since its low and runs the fair test. About two minutes.</p></div>
+          <button class="btn primary go">Run</button><div class="state"></div></li>
+      </ol>
+      <div class="lastscan" id="lastscan" hidden>
+        <span>Last scan <span class="mono" id="lastInfo"></span></span>
+        <button class="btn" id="showLast">Show last scan</button>
+      </div>
+    </div>
+
+    <div class="console" aria-label="Session log">
+      <header><span class="dot" id="dot"></span>Session log<span class="job" id="job">idle</span></header>
+      <pre class="log" id="log"><span class="ln"><span class="t">--:--:--</span><span class="c">Nothing has run in this session yet.</span></span></pre>
+      <footer id="msg" role="status" aria-live="polite">Ready.</footer>
+    </div>
+  </section>
+
+  <section class="bulletin" id="results" hidden aria-labelledby="resH">
+    <div class="bull-head"><h2 id="resH">Scan bulletin</h2><span class="meta" id="resMeta"></span></div>
+
+    <div class="block">
+      <div class="figs" id="figs"></div>
+      <div class="compo" id="compo" aria-label="How the analysed stocks split into groups"></div>
+      <div class="compo-scale"><span>0</span><span id="compoMax"></span></div>
+      <p class="note" id="assume" style="margin-top:14px"></p>
+      <div class="listbox" id="listBox" hidden>
+        <div class="sec-head"><h2 id="listTitle"></h2>
+          <label><span class="sr">Find a stock</span><input id="listFind" type="search" placeholder="Find a symbol" autocomplete="off"></label></div>
+        <div class="tablewrap scroll"><table><thead><tr><th scope="col">Symbol</th><th scope="col">Group</th><th scope="col">Low on</th>
+          <th scope="col">Price since low</th><th scope="col">P/E at low</th><th scope="col">P/E now</th><th scope="col">P/E change</th>
+          <th scope="col">EPS change</th></tr></thead><tbody id="listBody"></tbody></table></div>
+      </div>
+    </div>
+
+    <div class="block">
+      <div class="sec-head"><h2>Fair test</h2><span class="eyebrow">no hindsight</span></div>
+      <p class="note">On the first day each signal showed, we bought at the next session's close and compared the return 3 and 6 months
+      later with the median stock over the same sessions. The tick in the last column marks 50%, a coin toss.</p>
+      <div class="tablewrap"><table><thead><tr><th scope="col">Signal</th><th scope="col">Stocks</th><th scope="col">Median return</th>
+        <th scope="col">Market, same days</th><th scope="col">Typical stock vs market</th><th scope="col">Beat the market</th></tr></thead>
+        <tbody id="fairBody"></tbody></table></div>
+    </div>
+
+    <div class="block">
+      <div class="sec-head"><h2>Price against earnings</h2><span class="eyebrow">every analysed stock</span></div>
+      <iframe class="chartframe" id="chart" title="Interactive chart of price rise against earnings change"></iframe>
+    </div>
+
+    <div class="block">
+      <div class="sec-head"><h2>Leaders by group</h2><span class="eyebrow">top 10</span></div>
+      <div class="leaders" id="tops" style="margin-top:16px"></div>
+    </div>
+
+    <div class="block" style="border-bottom:0">
+      <div class="sec-head"><h2>Output files</h2><span class="eyebrow">output folder</span></div>
+      <ul class="files" id="files"></ul>
+      <button class="btn" id="openOut">Open the output folder</button>
+    </div>
+  </section>
+</div>
+<script>
+const TOKEN = document.querySelector('meta[name="token"]').content;
+const $ = id => document.getElementById(id);
+const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const NS = "http://www.w3.org/2000/svg";
+// same shapes as the chart, so a group reads the same everywhere
+const GROUPS = [
+  {key: "extreme", label: "Extreme", shape: "diamond", c: "var(--c-extreme)"},
+  {key: "late", label: "Late stage", shape: "triangle", c: "var(--c-late)"},
+  {key: "earn", label: "Earnings-driven", shape: "circle", c: "var(--c-earn)"},
+  {key: "collapse", label: "Profits collapsed", shape: "square", c: "var(--c-collapse)"},
+];
+const TAGNAME = {"Extreme": "Extreme", "Late stage": "Late stage", "Earnings-driven": "Earnings-driven", "Profit collapse": "Profits collapsed", "": "–"};
+const MON = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+let next = 0, running = false, lastFinished = null, summary = null, currentJob = null;
+const stepState = {};
+
+// NSE writes dates as 13-Nov-2026
+const nseDate = iso => { if (!iso) return ""; const d = new Date(iso.length === 10 ? iso + "T00:00:00" : iso);
+  return `${String(d.getDate()).padStart(2, "0")}-${MON[d.getMonth()]}-${d.getFullYear()}`; };
+const clock = d => d.toTimeString().slice(0, 8);
+const nseWhen = iso => `${nseDate(iso)} ${clock(new Date(iso)).slice(0, 5)}`;
+const pct = v => v == null ? "–" : (v > 0 ? "+" : "") + v.toLocaleString("en-IN", {maximumFractionDigits: 1}) + "%";
+const num = v => v == null ? "–" : v >= 100 ? Math.round(v).toLocaleString("en-IN") : v.toFixed(1);
+const sign = v => v == null ? "" : v > 0 ? "pos" : v < 0 ? "neg" : "";
+function td(tr, text, cls) { const c = document.createElement("td"); c.textContent = text; if (cls) c.className = cls; tr.appendChild(c); return c; }
+function el(tag, cls, text) { const e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+function glyph(shape, color, size = 12) {
+  const s = document.createElementNS(NS, "svg"); s.setAttribute("width", size); s.setAttribute("height", size); s.setAttribute("viewBox", "0 0 12 12"); s.setAttribute("aria-hidden", "true");
+  const p = document.createElementNS(NS, "path");
+  p.setAttribute("d", {diamond: "M6 0.5L11 6L6 11.5L1 6Z", triangle: "M6 1L11.2 10.5H0.8Z", square: "M1.5 1.5H10.5V10.5H1.5Z", circle: "M1 6a5 5 0 1 0 10 0a5 5 0 1 0 -10 0"}[shape]);
+  p.setAttribute("fill", color); s.appendChild(p); return s;
+}
+async function post(path) {
+  const r = await fetch(path, {method: "POST", headers: {"X-Token": TOKEN}});
+  return r.json().catch(() => ({}));
+}
+
+// ---------- readout ----------
+async function refreshInfo() {
+  const i = await (await fetch("/api/info")).json();
+  const set = (n, d, x) => { $(n).textContent = x.count.toLocaleString("en-IN"); $(d).textContent = x.count ? `${nseDate(x.first)} → ${nseDate(x.last)}` : "none yet"; };
+  set("peN", "peD", i.pe); set("bhN", "bhD", i.bhav); set("tdN", "tdD", i.tradingDays);
+  if (i.lastScan) { $("lastscan").hidden = false; $("lastInfo").textContent = `${nseWhen(i.lastScan.generated)} · data to ${nseDate(i.lastScan.asOf)}`; }
+  renderFiles(i.outputs);
+}
+
+// ---------- run sheet ----------
+for (const row of document.querySelectorAll(".run")) {
+  row.querySelector(".go").addEventListener("click", async () => {
+    if (row.classList.contains("is-running")) { stopJob(row); return; }
+    const r = await post("/api/run/" + row.dataset.job);
+    if (r.error) { setMsg(r.error, "bad"); return; }
+    $("log").textContent = ""; next = 0; lastFinished = null; poll();
+  });
+}
+function stopJob(row) { const b = row.querySelector(".go"); b.disabled = true; b.textContent = "Stopping…"; post("/api/stop"); }
+function setMsg(text, cls) { $("msg").className = cls || ""; $("msg").textContent = text; }
+
+function renderRows(s) {
+  for (const row of document.querySelectorAll(".run")) {
+    const key = row.dataset.job, b = row.querySelector(".go"), st = row.querySelector(".state");
+    const mine = running && s.job === key;
+    row.classList.toggle("is-running", mine);
+    st.textContent = "";
+    if (mine) {
+      b.className = "btn stop go"; if (b.textContent !== "Stopping…") { b.textContent = "Stop"; b.disabled = false; }
+      const pill = el("span", "pill live", "Running"); const m = el("div", "meter"); m.appendChild(el("i"));
+      const det = s.total > 0; m.classList.toggle("indet", !det); if (det) m.firstChild.style.width = (100 * s.done / s.total) + "%";
+      st.append(pill, m); if (det) st.append(el("span", null, `${s.done}/${s.total} sessions`));
+    } else {
+      b.className = "btn primary go"; b.textContent = "Run"; b.disabled = running;
+      const done = stepState[key];
+      if (done) st.append(el("span", "pill " + (done.ok ? "ok" : "bad"), done.ok ? "Done" : done.stopped ? "Stopped" : "Failed"), el("span", null, done.at));
+    }
+  }
+}
+
+function addLines(lines) {
+  const log = $("log"), atBottom = log.scrollHeight - log.scrollTop - log.clientHeight < 40;
+  const frag = document.createDocumentFragment(), now = clock(new Date());
+  for (const l of lines) {
+    const ln = el("span", "ln"); ln.appendChild(el("span", "t", now));
+    const cls = /^> /.test(l) ? "cmd" : /error|traceback|giving up|exception/i.test(l) ? "e" : /not available|not found|retrying|connection problem|stopped/i.test(l) ? "w"
+      : /saved|complete|wrote|finished|done/i.test(l) ? "g" : /already have/i.test(l) ? "c" : "";
+    ln.appendChild(el("span", cls, l)); ln.appendChild(document.createTextNode("\n")); frag.appendChild(ln);
+  }
+  log.appendChild(frag);
+  while (log.childNodes.length > 4000) log.removeChild(log.firstChild);
+  if (atBottom) log.scrollTop = log.scrollHeight;
+}
+
+async function poll() {
+  let s;
+  try { s = await (await fetch("/api/status?since=" + next)).json(); }
+  catch { setMsg("Lost contact with the app. Double-click START_HERE.bat to start it again.", "bad"); $("dot").className = "dot"; return; }
+  if (s.lines.length) addLines(s.lines);
+  next = s.next; running = s.running;
+  $("dot").className = "dot" + (running ? " on" : "");
+  $("job").textContent = running ? s.title : "idle";
+  if (running) { currentJob = s.job; setMsg(s.total ? `${s.done} of ${s.total} sessions` : "Working…"); }
+  else if (s.message) setMsg(s.message, s.ok ? "ok" : "bad");
+  if (!running && s.finished && s.finished !== lastFinished) {
+    lastFinished = s.finished;
+    stepState[s.finished] = {ok: s.ok, stopped: /stopped/i.test(s.message || ""), at: clock(new Date()).slice(0, 5)};
+    renderRows(s);
+    await refreshInfo();
+    if (s.finished === "scan" && s.ok) loadResults();
+    return;
+  }
+  renderRows(s);
+  if (running) setTimeout(poll, 700);
+}
+
+// ---------- bulletin ----------
+$("showLast").addEventListener("click", loadResults);
+async function loadResults() {
+  const r = await fetch("/api/last-scan");
+  if (!r.ok) return;
+  summary = await r.json();
+  $("results").hidden = false;
+  $("resMeta").textContent = `Data to ${nseDate(summary.asOf)} · scanned ${nseWhen(summary.generated)}`;
+  $("assume").textContent = summary.assumption + " Click a figure or a bar segment to list its stocks.";
+  renderFigs(); renderFair(); renderTops();
+  $("chart").src = "/output/pe_chart.html?embed&v=" + encodeURIComponent(summary.generated);
+  $("listBox").hidden = true;
+  $("results").scrollIntoView({behavior: reduced ? "auto" : "smooth", block: "start"});
+}
+
+function countUp(node, to, fmt) {
+  if (reduced) { node.textContent = fmt(to); return; }
+  const t0 = performance.now(), dur = 1100;
+  const step = t => { const p = Math.min(1, (t - t0) / dur), e = 1 - Math.pow(1 - p, 3);
+    node.textContent = fmt(to * e); if (p < 1) requestAnimationFrame(step); };
+  requestAnimationFrame(step);
+}
+
+function renderFigs() {
+  const box = $("figs"); box.textContent = "";
+  const items = [{key: "all", label: "Stocks analysed", count: summary.analysed}, ...GROUPS.map(g => ({...g, ...summary.groups[g.key], label: g.label}))];
+  for (const it of items) {
+    const b = el("button", "fg"); b.dataset.key = it.key; b.setAttribute("aria-pressed", "false");
+    const lab = el("span", "lab"); if (it.shape) lab.appendChild(glyph(it.shape, it.c)); lab.appendChild(document.createTextNode(it.label));
+    const v = el("div", "v", "0"), sh = el("div", "sh");
+    b.append(lab, v, sh); box.appendChild(b);
+    countUp(v, it.count, x => Math.round(x).toLocaleString("en-IN"));
+    if (it.key === "all") sh.textContent = "liquid, profitable, 200+ sessions";
+    else countUp(sh, it.share, x => `${x.toFixed(1)}% of analysed`);
+    b.addEventListener("click", () => showList(it.key));
+  }
+  const compo = $("compo"); compo.textContent = "";
+  const tagged = GROUPS.reduce((n, g) => n + summary.groups[g.key].count, 0);
+  for (const g of [...GROUPS, {key: "rest", label: "No tag", c: "var(--c-rest)"}]) {
+    const n = g.key === "rest" ? summary.analysed - tagged : summary.groups[g.key].count;
+    if (!n) continue;
+    const seg = el("button", g.key === "rest" ? "rest" : ""); seg.style.setProperty("--c", g.c); seg.style.flex = `${n} 1 0`;
+    seg.dataset.key = g.key; seg.setAttribute("aria-pressed", "false");
+    seg.title = `${g.label}: ${n.toLocaleString("en-IN")} stocks`; seg.setAttribute("aria-label", seg.title);
+    if (g.key === "rest") seg.disabled = true; else seg.addEventListener("click", () => showList(g.key));
+    compo.appendChild(seg);
+  }
+  $("compoMax").textContent = `${summary.analysed.toLocaleString("en-IN")} stocks`;
+}
+
+function showList(key) {
+  for (const b of document.querySelectorAll(".fg, .compo button")) b.setAttribute("aria-pressed", String(b.dataset.key === key));
+  const g = summary.groups[key], rows = key === "all" ? summary.all : g.stocks;
+  $("listTitle").textContent = key === "all" ? `All ${rows.length.toLocaleString("en-IN")} stocks, A–Z` : `${g.label} · ${rows.length}, by ${g.sortedBy}`;
+  const body = $("listBody"); body.textContent = "";
+  for (const r of rows) {
+    const tr = document.createElement("tr"); tr.dataset.s = r.s.toUpperCase();
+    td(tr, r.s, "sym"); td(tr, TAGNAME[r.tag] ?? r.tag); td(tr, r.ld.replace(/ /g, "-")); td(tr, pct(r.pc), sign(r.pc));
+    td(tr, num(r.pl)); td(tr, num(r.pn)); td(tr, r.px == null ? "–" : r.px.toFixed(2) + "×"); td(tr, pct(r.ec), sign(r.ec));
+    body.appendChild(tr);
+  }
+  $("listFind").value = ""; $("listBox").hidden = false;
+  $("listBox").scrollIntoView({behavior: reduced ? "auto" : "smooth", block: "nearest"});
+}
+$("listFind").addEventListener("input", e => {
+  const t = e.target.value.trim().toUpperCase();
+  for (const tr of $("listBody").children) tr.hidden = !!t && !tr.dataset.s.includes(t);
+});
+
+function renderFair() {
+  const body = $("fairBody"); body.textContent = "";
+  let last = null;
+  for (const r of summary.fairTest) {
+    if (r.horizon !== last) {
+      last = r.horizon;
+      const tr = el("tr", "sub"), th = el("th", null, r.horizon + " later"); th.colSpan = 6; th.scope = "rowgroup"; tr.appendChild(th); body.appendChild(tr);
+    }
+    const tr = document.createElement("tr");
+    td(tr, r.group); td(tr, r.stocks.toLocaleString("en-IN")); td(tr, pct(r.median)); td(tr, pct(r.market));
+    td(tr, r.vsMarket == null ? "–" : (r.vsMarket > 0 ? "+" : "") + r.vsMarket.toFixed(1) + " pts", sign(r.vsMarket));
+    const c = td(tr, "");
+    if (r.beat != null) {
+      const w = el("span", "beat"), bar = el("span", "bar"), fill = el("i");
+      fill.style.width = r.beat + "%"; bar.append(fill, el("b")); w.append(bar, el("span", null, Math.round(r.beat) + "%")); c.appendChild(w);
+    } else c.textContent = "–";
+    body.appendChild(tr);
+  }
+}
+
+function renderTops() {
+  const box = $("tops"); box.textContent = "";
+  for (const g of GROUPS) {
+    const grp = summary.groups[g.key], card = el("div");
+    const h = el("h3"); h.append(glyph(g.shape, g.c, 13), document.createTextNode(grp.label), el("span", null, `by ${grp.sortedBy}`));
+    const tbl = document.createElement("table"), head = tbl.createTHead().insertRow();
+    for (const t of ["Symbol", "P/E change", "Price", "EPS"]) { const th = el("th", null, t); th.scope = "col"; head.appendChild(th); }
+    const tb = tbl.createTBody();
+    for (const r of grp.stocks.slice(0, 10)) {
+      const tr = document.createElement("tr");
+      td(tr, r.s, "sym"); td(tr, r.px == null ? "–" : r.px.toFixed(2) + "×"); td(tr, pct(r.pc), sign(r.pc)); td(tr, pct(r.ec), sign(r.ec));
+      tb.appendChild(tr);
+    }
+    if (!grp.count) { const tr = document.createElement("tr"); td(tr, "No stocks in this group.").colSpan = 4; tb.appendChild(tr); }
+    const wrap = el("div", "tablewrap"); wrap.appendChild(tbl); card.append(h, wrap); box.appendChild(card);
+  }
+}
+
+const FILE_INFO = {
+  "pe_chart.html": "Interactive chart with the Minervini comparison. Opens in a new tab and works offline.",
+  "results.csv": "Every analysed stock with its P/E change and group. Opens in Excel.",
+  "backtest_events.csv": "Every fair-test signal with its 3- and 6-month returns. Opens in Excel.",
+  "scan_summary.json": "The figures behind this page.",
+};
+function renderFiles(outputs) {
+  const ul = $("files"); ul.textContent = "";
+  for (const f of outputs) {
+    const li = el("li"), a = el("a", null, f.name);
+    a.href = "/output/" + encodeURIComponent(f.name);
+    if (/\.(html|json)$/.test(f.name)) { a.target = "_blank"; a.rel = "noopener"; }
+    li.append(a, el("span", "what", FILE_INFO[f.name] || ""), el("span", "size", `${Math.round(f.size / 1024).toLocaleString("en-IN")} KB`));
+    ul.appendChild(li);
+  }
+}
+$("openOut").addEventListener("click", () => post("/api/open-output"));
+
+// size the chart frame to its content (same origin)
+$("chart").addEventListener("load", () => {
+  const f = $("chart"), doc = f.contentDocument;
+  const fit = () => { f.style.height = doc.body.scrollHeight + "px"; };
+  fit(); new ResizeObserver(fit).observe(doc.body);
+});
+
+refreshInfo().then(async () => {
+  const s = await (await fetch("/api/status?since=0")).json();  // window reopened mid-run: pick the log back up
+  if (s.running) { $("log").textContent = ""; poll(); } else { lastFinished = s.finished; renderRows(s); }
+});
+setInterval(() => { if (!running) fetch("/api/ping"); }, 30000);  // keeps the app alive while the window is open
+</script>
+</body>
+</html>

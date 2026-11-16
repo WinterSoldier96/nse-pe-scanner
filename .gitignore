@@ -1,0 +1,11 @@
+# NSE data the app downloads
+PE File/
+bhav copy/
+*.part
+
+# Scan results
+output/
+
+# Python
+__pycache__/
+*.pyc
